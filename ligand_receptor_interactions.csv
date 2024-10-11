@@ -1,0 +1,11 @@
+Source,Target,Ligand,Receptor
+CellTypeA,CellTypeB,L1,R1
+CellTypeA,CellTypeC,L2,R2
+CellTypeB,CellTypeC,L3,R3
+CellTypeC,CellTypeA,L4,R4
+CellTypeB,CellTypeA,L5,R5
+CellTypeC,CellTypeB,L6,R6
+CellTypeA,CellTypeC,L7,R7
+CellTypeB,CellTypeA,L8,R8
+CellTypeA,CellTypeB,L9,R9
+CellTypeC,CellTypeB,L10,R10

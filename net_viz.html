@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ligand-Receptor Interaction Display</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.21.1/cytoscape.min.js"></script> <!-- Cytoscape.js for graph visualization -->
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        table {
+            width: 80%;
+            margin: 20px auto;
+            border-collapse: collapse;
+        }
+        table, th, td {
+            border: 1px solid #ccc;
+            text-align: center;
+        }
+        th, td {
+            padding: 10px;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+        #loading {
+            text-align: center;
+            font-size: 18px;
+            margin-top: 20px;
+        }
+        #cy {
+            width: 80%;
+            height: 500px;
+            margin: 20px auto;
+            border: 1px solid #ccc;
+        }
+        #file-input {
+            display: block;
+            margin: 20px auto;
+        }
+    </style>
+</head>
+<body>
+
+    <h1 style="text-align: center;">Ligand-Receptor Interactions</h1>
+    <input type="file" id="file-input" accept=".csv" />
+    <div id="loading">Loading data...</div> <!-- Placeholder while data is being loaded -->
+    <div id="table-container" style="text-align: center;"></div>
+    <div id="cy"></div> <!-- This is where the graph visualization will be rendered -->
+
+    <script>
+        // Function to parse CSV text into a JSON-like structure
+        function parseCSV(csvText) {
+            const rows = csvText.split("\n").map(row => row.trim());
+            const headers = rows[0].split(",");
+            const data = [];
+
+            for (let i = 1; i < rows.length; i++) {
+                const values = rows[i].split(",");
+                if (values.length === headers.length) {
+                    const rowObject = {};
+                    headers.forEach((header, index) => {
+                        rowObject[header.trim()] = values[index].trim();
+                    });
+                    data.push(rowObject);
+                }
+            }
+            return data;
+        }
+
+        // Function to create and insert the HTML table from the CSV data
+        function createTableFromCSV(data) {
+            try {
+                if (!data || data.length === 0) {
+                    throw new Error("No data available to generate the table.");
+                }
+
+                let html = '<table>';
+                html += '<thead><tr><th>Source</th><th>Target</th><th>Ligand</th><th>Receptor</th></tr></thead>';
+                html += '<tbody>';
+
+                data.forEach(row => {
+                    if (row.Source && row.Target && row.Ligand && row.Receptor) {
+                        html += `<tr>
+                                    <td>${row.Source}</td>
+                                    <td>${row.Target}</td>
+                                    <td>${row.Ligand}</td>
+                                    <td>${row.Receptor}</td>
+                                 </tr>`;
+                    } else {
+                        console.warn("Incomplete row data", row);
+                    }
+                });
+
+                html += '</tbody></table>';
+
+                document.getElementById('table-container').innerHTML = html;
+                document.getElementById('loading').style.display = 'none';
+            } catch (error) {
+                console.error("Error creating table:", error.message);
+                document.getElementById('table-container').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Function to create Cytoscape visualization from the CSV data
+        function createGraphFromCSV(data) {
+            try {
+                if (!data || data.length === 0) {
+                    throw new Error("No data available to generate the graph.");
+                }
+
+                const elements = [];
+                const nodes = new Set();
+
+                data.forEach(row => {
+                    if (row.Source && row.Target && row.Ligand && row.Receptor) {
+                        if (!nodes.has(row.Source)) {
+                            elements.push({
+                                data: { id: row.Source, label: row.Source }
+                            });
+                            nodes.add(row.Source);
+                        }
+                        if (!nodes.has(row.Target)) {
+                            elements.push({
+                                data: { id: row.Target, label: row.Target }
+                            });
+                            nodes.add(row.Target);
+                        }
+
+                        elements.push({
+                            data: {
+                                source: row.Source,
+                                target: row.Target,
+                                label: `${row.Ligand} -> ${row.Receptor}`
+                            }
+                        });
+                    } else {
+                        console.warn("Incomplete row data for graph", row);
+                    }
+                });
+
+                cytoscape({
+                    container: document.getElementById('cy'),
+                    elements: elements,
+                    layout: {
+                        name: 'cose'
+                    },
+                    style: [
+                        {
+                            selector: 'node',
+                            style: {
+                                'background-color': function (ele) {
+                                    switch (ele.data('id')) {
+                                        case 'CellTypeA':
+                                            return 'skyblue';
+                                        case 'CellTypeB':
+                                            return 'lightgreen';
+                                        case 'CellTypeC':
+                                            return 'lightcoral';
+                                        default:
+                                            return 'lightgray';
+                                    }
+                                },
+                                'label': 'data(label)',
+                                'text-valign': 'center',
+                                'text-halign': 'center',
+                                'font-size': '12px',
+                                'color': 'black',
+                                'width': '100px',
+                                'height': '100px',
+                                'shape': 'ellipse',
+                                'opacity': 0.7
+                            }
+                        },
+                        {
+                            selector: 'edge',
+                            style: {
+                                'width': 2,
+                                'line-color': '#ccc',
+                                'target-arrow-color': '#ccc',
+                                'target-arrow-shape': 'triangle',
+                                'curve-style': 'bezier',
+                                'label': 'data(label)',
+                                'font-size': '10px',
+                                'text-rotation': 'autorotate',
+                                'color': 'red'
+                            }
+                        }
+                    ]
+                });
+            } catch (error) {
+                console.error("Error creating graph:", error.message);
+                document.getElementById('cy').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Handle file input change
+        document.getElementById('file-input').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+
+                reader.onload = function(e) {
+                    const csvText = e.target.result;
+                    const data = parseCSV(csvText);
+
+                    // Update the table and graph with the new data
+                    createTableFromCSV(data);
+                    createGraphFromCSV(data);
+                };
+
+                reader.onerror = function(e) {
+                    console.error("Error reading file:", e.target.error.message);
+                    document.getElementById('loading').innerHTML = `<p style="color: red;">Error reading file: ${e.target.error.message}</p>`;
+                };
+
+                reader.readAsText(file);
+            }
+        });
+    </script>
+</body>
+</html>
+
+
+
+
