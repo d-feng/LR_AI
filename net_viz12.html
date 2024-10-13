@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="en">
 <head>
     <meta charset="viewport" content="width=device-width, initial-scale=1.0">
@@ -14,7 +14,7 @@
             margin: 20px auto;
             border: 1px solid #ccc;
         }
-        #file-input, #download-png-button, #show-table-button, #download-svg-button, .control-slider, .color-picker, #cutoff-input, #reinitialize-button {
+        #file-input, #download-png-button, #show-table-button, .control-slider, .color-picker {
             display: block;
             margin: 20px auto;
             padding: 10px 20px;
@@ -57,7 +57,6 @@
     <table id="data-table"></table>
     <div id="cy"></div>
     <button id="download-png-button" style="display: none;">Download Network as PNG</button>
-    <button id="download-svg-button" style="display: none;">Download Network as SVG</button>
 
     <input type="range" id="font-slider" class="control-slider" min="5" max="30" value="10">
     <label for="font-slider" style="text-align: center; display: block;">Adjust Edge Font Size</label>
@@ -71,11 +70,11 @@
     <input type="range" id="node-font-slider" class="control-slider" min="5" max="30" value="10">
     <label for="node-font-slider" style="text-align: center; display: block;">Adjust Node Font Size</label>
 
-    <!-- Number Input Box for Cutoff with Step 0.05 -->
-    <input type="number" id="cutoff-input" min="0" max="100" step="0.05" value="0">
-    <label for="cutoff-input" style="text-align: center; display: block;">Enter Score Cutoff (Hide Edges Below Cutoff)</label>
+    <input type="color" id="node-font-color" class="color-picker">
+    <label for="node-font-color" style="text-align: center; display: block;">Select Node Font Color</label>
 
-    <button id="reinitialize-button">Reinitialize Network</button>
+    <input type="color" id="edge-text-color" class="color-picker">
+    <label for="edge-text-color" style="text-align: center; display: block;">Select Edge Text Color</label>
 
     <script>
         // Initialize Cytoscape with empty elements
@@ -140,7 +139,7 @@
                         parseCSVAndCreateGraph(csvText);
                         displayTable(csvText);
                     } catch (error) {
-                        console.error("Error processing the CSV file: ", error);
+                        console.error(error);
                         displayError("Error processing the CSV file. Please check the console for details.");
                     }
                 };
@@ -158,18 +157,13 @@
                 throw new Error("CSV file is empty or doesn't have enough data.");
             }
 
-            const headers = rows[0].split(",").map(h => h.trim().toLowerCase());
-            const requiredHeaders = ['source', 'target', 'ligand', 'receptor', 'score'];
-            const headerIndexMap = {};
+            const headers = rows[0].split(",").map(h => h.trim());
+            const requiredHeaders = ['Source', 'Target', 'Ligand', 'Receptor', 'Score'];
+            const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
 
-            // Find the indices of the required headers, ignoring case and order
-            requiredHeaders.forEach(requiredHeader => {
-                const index = headers.indexOf(requiredHeader);
-                if (index === -1) {
-                    throw new Error(`Missing required header in CSV: ${requiredHeader}`);
-                }
-                headerIndexMap[requiredHeader] = index;
-            });
+            if (missingHeaders.length > 0) {
+                throw new Error(`Missing headers in CSV: ${missingHeaders.join(", ")}`);
+            }
 
             const elements = [];
             const nodes = new Set();
@@ -185,12 +179,19 @@
 
             // First pass to determine min and max scores
             for (let i = 1; i < rows.length; i++) {
-                if (rows[i] === "") continue;
+                if (rows[i] === "") continue; // Skip empty lines
 
                 const values = rows[i].split(",");
-                if (values.length !== headers.length) continue;
+                if (values.length !== headers.length) {
+                    continue;
+                }
 
-                const score = parseFloat(values[headerIndexMap['score']]);
+                const row = {};
+                headers.forEach((header, index) => {
+                    row[header] = values[index].trim();
+                });
+
+                const score = parseFloat(row.Score);
                 if (!isNaN(score) && score > 0) {
                     minScore = Math.min(minScore, score);
                     maxScore = Math.max(maxScore, score);
@@ -198,72 +199,144 @@
             }
 
             if (minScore === Infinity || maxScore === -Infinity) {
-                throw new Error("No valid scores found to determine edge thickness. Please ensure your CSV file has valid content.");
+                displayError("No valid scores found to determine edge thickness. Please ensure your CSV file has valid content.");
+                return;
             }
 
             // Second pass to build the graph elements
             for (let i = 1; i < rows.length; i++) {
-                if (rows[i] === "") continue;
+                if (rows[i] === "") continue; // Skip empty lines
 
                 const values = rows[i].split(",");
-                if (values.length !== headers.length) continue;
-
-                const source = values[headerIndexMap['source']].trim();
-                const target = values[headerIndexMap['target']].trim();
-                const ligand = values[headerIndexMap['ligand']].trim();
-                const receptor = values[headerIndexMap['receptor']].trim();
-                const score = parseFloat(values[headerIndexMap['score']]);
-
-                if (isNaN(score) || score <= 0) continue;
-
-                if (!nodeColors[source]) {
-                    nodeColors[source] = colorPalette[Object.keys(nodeColors).length % colorPalette.length];
-                }
-                if (!nodeColors[target]) {
-                    nodeColors[target] = colorPalette[Object.keys(nodeColors).length % colorPalette.length];
+                if (values.length !== headers.length) {
+                    continue;
                 }
 
-                if (!nodes.has(source)) {
+                const row = {};
+                headers.forEach((header, index) => {
+                    row[header] = values[index].trim();
+                });
+
+                const score = parseFloat(row.Score);
+                if (isNaN(score) || score <= 0) {
+                    continue;
+                }
+
+                // Assign colors to each cell type (Source and Target) if not already assigned
+                if (!nodeColors[row.Source]) {
+                    nodeColors[row.Source] = colorPalette[Object.keys(nodeColors).length % colorPalette.length];
+                }
+                if (!nodeColors[row.Target]) {
+                    nodeColors[row.Target] = colorPalette[Object.keys(nodeColors).length % colorPalette.length];
+                }
+
+                // Add nodes if they don't already exist
+                if (!nodes.has(row.Source)) {
                     elements.push({
-                        data: { id: source, label: source, color: nodeColors[source] }
+                        data: { id: row.Source, label: row.Source, color: nodeColors[row.Source] }
                     });
-                    nodes.add(source);
+                    nodes.add(row.Source);
                 }
-                if (!nodes.has(target)) {
+                if (!nodes.has(row.Target)) {
                     elements.push({
-                        data: { id: target, label: target, color: nodeColors[target] }
+                        data: { id: row.Target, label: row.Target, color: nodeColors[row.Target] }
                     });
-                    nodes.add(target);
+                    nodes.add(row.Target);
                 }
 
+                // Add edge
                 elements.push({
                     data: {
-                        source: source,
-                        target: target,
-                        label: `${ligand} -> ${receptor}`,
+                        source: row.Source,
+                        target: row.Target,
+                        label: `${row.Ligand} -> ${row.Receptor}`,
                         score: score,
-                        sourceColor: nodeColors[source],
-                        targetColor: nodeColors[target]
+                        sourceColor: nodeColors[row.Source],
+                        targetColor: nodeColors[row.Target]
                     }
                 });
             }
 
             if (elements.length === 0) {
-                throw new Error("No valid data to create a graph. Please ensure your CSV file has valid content.");
+                displayError("No valid data to create a graph. Please ensure your CSV file has valid content.");
+                return;
             }
-
-            // Update Cytoscape elements
+// Update Cytoscape elements and render the network
             cy.elements().remove();
             cy.add(elements);
             cy.layout({ name: 'cose' }).run();
 
-            // Show the download buttons after graph creation
-            document.getElementById('download-png-button').style.display = 'block';
-            document.getElementById('download-svg-button').style.display = 'block';
+            
 
-            // Show the Show Table button after successful CSV processing
+            // Add color pickers for each unique node
+            const nodeColorsDiv = document.createElement('div');
+            nodeColorsDiv.id = 'node-colors';
+            nodeColorsDiv.style.textAlign = 'center';
+            nodeColorsDiv.style.marginTop = '20px';
+
+            nodes.forEach(nodeId => {
+                const label = document.createElement('label');
+                label.textContent = `Color for ${nodeId}: `;
+                label.style.marginRight = '10px';
+
+                const colorPicker = document.createElement('input');
+                colorPicker.type = 'color';
+                colorPicker.value = nodeColors[nodeId];
+                colorPicker.dataset.nodeId = nodeId;
+                colorPicker.addEventListener('input', function() {
+                    const newColor = this.value;
+                    cy.style()
+                        .selector(`node[id = '${this.dataset.nodeId}']`)
+                        .style('background-color', newColor)
+                        .update();
+                });
+
+                nodeColorsDiv.appendChild(label);
+                nodeColorsDiv.appendChild(colorPicker);
+                nodeColorsDiv.appendChild(document.createElement('br'));
+            });
+
+            document.body.appendChild(nodeColorsDiv);
+
+            
+        }
+
+        // Function to display CSV data in a table
+        function displayTable(csvText) {
+            const rows = csvText.split("\n").map(row => row.trim());
+            if (rows.length < 2) return;
+
+            const headers = rows[0].split(",").map(h => h.trim());
+            const table = document.getElementById('data-table');
+
+            // Clear previous table content
+            table.innerHTML = '';
+
+            // Create table headers
+            let headerRow = '<tr>';
+            headers.forEach(header => {
+                headerRow += `<th>${header}</th>`;
+            });
+            headerRow += '</tr>';
+            table.innerHTML += headerRow;
+
+            // Create table rows
+            for (let i = 1; i < rows.length; i++) {
+                if (rows[i] === "") continue; // Skip empty lines
+
+                const values = rows[i].split(",");
+                if (values.length !== headers.length) continue; // Skip malformed rows
+
+                let rowHtml = '<tr>';
+                values.forEach(value => {
+                    rowHtml += `<td>${value.trim()}</td>`;
+                });
+                rowHtml += '</tr>';
+                table.innerHTML += rowHtml;
+            }
+
+            // Show the "Show Table" button after table is ready
             document.getElementById('show-table-button').style.display = 'block';
-            clearError();
         }
 
         // Show/hide table with button click
@@ -278,56 +351,83 @@
             }
         });
 
-        // Function to display the CSV data in an HTML table
-        function displayTable(csvText) {
-            const rows = csvText.split("\n").map(row => row.trim());
-            const table = document.getElementById('data-table');
-            table.innerHTML = ""; // Clear existing table data
-
-            if (rows.length > 1) {
-                const headers = rows[0].split(",");
-                // Create table header
-                const headerRow = document.createElement('tr');
-                headers.forEach(header => {
-                    const th = document.createElement('th');
-                    th.textContent = header;
-                    headerRow.appendChild(th);
-                });
-                table.appendChild(headerRow);
-
-                // Create table rows
-                for (let i = 1; i < rows.length; i++) {
-                    if (rows[i] === "") continue;
-                    const values = rows[i].split(",");
-                    if (values.length !== headers.length) continue;
-
-                    const row = document.createElement('tr');
-                    values.forEach(value => {
-                        const td = document.createElement('td');
-                        td.textContent = value;
-                        row.appendChild(td);
+        // Handle PNG download
+        document.getElementById('download-png-button').addEventListener('click', function() {
+            if (cy) {
+                try {
+                    const pngContent = cy.png({
+                        full: true,
+                        scale: 2 // Adjust to desired resolution
                     });
-                    table.appendChild(row);
+                    const link = document.createElement('a');
+                    link.href = pngContent;
+                    link.download = 'network_graph.png';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                } catch (error) {
+                    console.error("Error generating PNG: ", error);
+                    displayError("Error generating PNG. Please check the console for details.");
                 }
             }
-        }
-
-        // Adjust score cutoff using input
-        document.getElementById('cutoff-input').addEventListener('input', function() {
-            const cutoff = parseFloat(this.value);
-            cy.edges().forEach(edge => {
-                const edgeScore = parseFloat(edge.data('score'));
-                if (edgeScore < cutoff) {
-                    edge.hide();
-                } else {
-                    edge.show();
-                }
-            });
         });
 
-        // Reinitialize network layout button
-        document.getElementById('reinitialize-button').addEventListener('click', function() {
-            cy.layout({ name: 'cose' }).run();
+        // Adjust edge font size using slider
+        document.getElementById('font-slider').addEventListener('input', function() {
+            const fontSize = this.value + 'px';
+            cy.style()
+                .selector('edge')
+                .style('font-size', fontSize)
+                .update();
+        });
+
+        // Adjust edge transparency using slider
+        document.getElementById('transparency-slider').addEventListener('input', function() {
+            const opacity = this.value;
+            cy.style()
+                .selector('edge')
+                .style('opacity', opacity)
+                .update();
+        });
+
+        // Adjust edge thickness using slider
+        document.getElementById('thickness-slider').addEventListener('input', function() {
+            const baseThickness = parseFloat(this.value);
+            cy.style()
+                .selector('edge')
+                .style('width', function (ele) {
+                    // Scale edge thickness based on score
+                    const score = ele.data('score');
+                    return baseThickness * (score / maxScore);
+                })
+                .update();
+        });
+
+        // Adjust node font size using slider
+        document.getElementById('node-font-slider').addEventListener('input', function() {
+            const fontSize = this.value + 'px';
+            cy.style()
+                .selector('node')
+                .style('font-size', fontSize)
+                .update();
+        });
+
+        // Adjust node font color using color picker
+        document.getElementById('node-font-color').addEventListener('input', function() {
+            const color = this.value;
+            cy.style()
+                .selector('node')
+                .style('color', color)
+                .update();
+        });
+
+        // Adjust edge text color using color picker
+        document.getElementById('edge-text-color').addEventListener('input', function() {
+            const color = this.value;
+            cy.style()
+                .selector('edge')
+                .style('color', color)
+                .update();
         });
 
         // Function to display error messages
