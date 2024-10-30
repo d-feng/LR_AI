@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Directed Graph Visualization</title>
+  <script src="https://d3js.org/d3.v6.min.js"></script> <!-- Load D3.js library first -->
+  <style>
+    .node { fill: steelblue; stroke: #fff; stroke-width: 1.5px; cursor: pointer; }
+    .edge { stroke: grey; stroke-width: 1.5px; }
+    .label { font-size: 12px; fill: #333; pointer-events: none; }
+    .controls { margin: 10px; }
+  </style>
+</head>
+<body>
+  <!-- Controls for Layout Type and Force Settings -->
+  <div class="controls">
+    <label for="layoutType">Layout Type:</label>
+    <select id="layoutType">
+      <option value="force">Force-Directed</option>
+      <option value="radial">Radial</option>
+      <option value="grid">Grid</option>
+    </select>
+
+    <label for="linkDistance">Link Distance:</label>
+    <input type="range" id="linkDistance" min="20" max="200" value="80">
+
+    <label for="chargeStrength">Charge Strength:</label>
+    <input type="range" id="chargeStrength" min="-500" max="0" value="-100">
+  </div>
+
+  <svg width="100%" height="100%">
+    <!-- Define arrowhead marker for directed edges -->
+    <defs>
+      <marker id="arrowhead" viewBox="0 -5 10 10" refX="15" refY="0" 
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M0,-5L10,0L0,5" fill="grey" />
+      </marker>
+    </defs>
+  </svg>
+
+  <!-- Load your script after D3.js has been loaded -->
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const svg = d3.select("svg").attr("width", width).attr("height", height);
+
+      d3.json("graph_data.json").then(function(data) {
+        console.log("Data loaded:", data); // Confirm data load
+
+        if (!data || !data.nodes || !data.edges) {
+          console.error("Invalid data format. Ensure 'nodes' and 'edges' are present in JSON.");
+          return;
+        }
+
+        // Create a mapping of node IDs to nodes
+        const nodeById = new Map(data.nodes.map(node => [node.id, node]));
+
+        // Filter edges to ensure both source and target nodes exist
+        const validEdges = data.edges.filter(edge => {
+          const hasSource = nodeById.has(edge.from);
+          const hasTarget = nodeById.has(edge.to);
+
+          if (!hasSource || !hasTarget) {
+            console.warn(`Edge skipped due to missing node: from "${edge.from}" to "${edge.to}"`);
+            return false; // Skip this edge if the source or target node is missing
+          }
+
+          // Map 'from' and 'to' to 'source' and 'target' for D3
+          edge.source = nodeById.get(edge.from);
+          edge.target = nodeById.get(edge.to);
+          return true;
+        });
+
+        if (validEdges.length === 0) {
+          console.error("No valid edges found after filtering. Check node IDs in the data.");
+          return;
+        }
+
+        // Initialize the simulation
+        let linkDistance = +document.getElementById("linkDistance").value;
+        let chargeStrength = +document.getElementById("chargeStrength").value;
+        let layoutType = document.getElementById("layoutType").value;
+        let simulation;
+
+        function createSimulation() {
+          if (simulation) simulation.stop();
+
+          simulation = d3.forceSimulation(data.nodes)
+            .force("link", d3.forceLink(validEdges).id(d => d.id).distance(linkDistance).strength(1))
+            .force("charge", d3.forceManyBody().strength(chargeStrength))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .alpha(1) // Start the simulation actively
+            .restart();
+
+          simulation.on("tick", updatePositions);
+        }
+
+        function applyLayout() {
+          if (layoutType === "force") {
+            createSimulation();
+          } else if (layoutType === "radial") {
+            radialLayout();
+            if (simulation) simulation.stop();  // Stop simulation for static layout
+          } else if (layoutType === "grid") {
+            gridLayout();
+            if (simulation) simulation.stop();  // Stop simulation for static layout
+          }
+          updatePositions();
+        }
+
+        function radialLayout() {
+          const centerX = width / 2;
+          const centerY = height / 2;
+          const radiusStep = 100;
+
+          data.nodes[0].x = centerX;
+          data.nodes[0].y = centerY;
+          data.nodes.slice(1).forEach((node, index) => {
+            const radius = radiusStep * Math.floor(index / 10 + 1);
+            const angle = (index % 10) * (2 * Math.PI / 10);
+            node.x = centerX + radius * Math.cos(angle);
+            node.y = centerY + radius * Math.sin(angle);
+          });
+        }
+
+        function gridLayout() {
+          const numCols = Math.ceil(Math.sqrt(data.nodes.length));
+          const cellSize = 100;
+
+          data.nodes.forEach((node, index) => {
+            const row = Math.floor(index / numCols);
+            const col = index % numCols;
+            node.x = col * cellSize + cellSize / 2;
+            node.y = row * cellSize + cellSize / 2;
+          });
+        }
+
+        // Draw edges with arrowheads
+        const link = svg.selectAll(".edge")
+          .data(validEdges)
+          .enter().append("line")
+          .attr("class", "edge")
+          .attr("marker-end", "url(#arrowhead)")
+          .style("stroke-width", d => d.width)
+          .style("stroke", d => d.color);
+
+        // Draw nodes with drag enabled
+        const node = svg.selectAll(".node")
+          .data(data.nodes)
+          .enter().append("circle")
+          .attr("class", "node")
+          .attr("r", 10)
+          .style("fill", d => d3.interpolateBlues(d.score / 10))
+          .call(d3.drag()
+            .on("start", dragStarted)
+            .on("drag", dragged)
+            .on("end", dragEnded));
+
+        // Draw labels
+        const label = svg.selectAll(".label")
+          .data(data.nodes)
+          .enter().append("text")
+          .attr("class", "label")
+          .attr("dy", -12)
+          .attr("text-anchor", "middle")
+          .text(d => d.label);
+
+        function updatePositions() {
+          link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+
+          node
+            .attr("cx", d => d.x)
+            .attr("cy", d => d.y);
+
+          label
+            .attr("x", d => d.x)
+            .attr("y", d => d.y);
+        }
+
+        // Drag functions
+        function dragStarted(event, d) {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+          d.fx = event.x;
+          d.fy = event.y;
+        }
+
+        function dragEnded(event, d) {
+          if (!event.active) simulation.alphaTarget(0);
+          d.fx = null;
+          d.fy = null;
+        }
+
+        // Event listeners for controls
+        document.getElementById("layoutType").addEventListener("change", function(event) {
+          layoutType = event.target.value;
+          applyLayout();
+        });
+
+        document.getElementById("linkDistance").addEventListener("input", function(event) {
+          linkDistance = +event.target.value;
+          if (layoutType === "force") createSimulation();
+        });
+
+        document.getElementById("chargeStrength").addEventListener("input", function(event) {
+          chargeStrength = +event.target.value;
+          if (layoutType === "force") createSimulation();
+        });
+
+        applyLayout(); // Initial layout
+      }).catch(error => console.error("Error loading data:", error));
+    });
+  </script>
+</body>
+</html>
