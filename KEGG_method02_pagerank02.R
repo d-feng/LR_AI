@@ -93,10 +93,13 @@ nodes <- data.frame(
 )
 
 edges <- data.frame(
-  source = as.character(head_of(igraph_kegg, E(igraph_kegg))),
-  target = as.character(tail_of(igraph_kegg, E(igraph_kegg))),
+  from = as.character(names(head_of(igraph_kegg, E(igraph_kegg)))),
+  to = as.character(names(tail_of(igraph_kegg, E(igraph_kegg)))),
+  width = 1,
+  #color = E(igraph_kegg)$color,
+  color="grey",
   weight = E(igraph_kegg)$weight
 )
 
 json_data <- toJSON(list(nodes = nodes, edges = edges), pretty = TRUE)
-write(json_data, file = "graph_data.json")
+write(json_data, file = "graph_data2.json")
